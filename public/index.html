@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <title>AI 知识库问答</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 800px;
+        margin: 20px auto;
+      }
+      textarea,
+      input {
+        width: 100%;
+        margin: 5px 0 10px;
+      }
+      textarea {
+        height: 80px;
+      }
+      button {
+        padding: 8px 16px;
+      }
+      .chat-box {
+        border-top: 1px solid #ccc;
+        padding-top: 10px;
+        margin-top: 20px;
+      }
+      .entry {
+        margin-bottom: 15px;
+      }
+      .entry .user {
+        font-weight: bold;
+        margin-bottom: 4px;
+      }
+      .chunk {
+        background: #f4f4f4;
+        padding: 10px;
+        border-radius: 5px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>AI 网页对话服务</h2>
+
+    <label for="repo">知识库名称（如 cnb/docs）:</label>
+    <input type="text" id="repo" placeholder="请输入知识库名称..." />
+
+    <label for="question">提问：</label>
+    <textarea id="question" placeholder="请输入你的问题..."></textarea>
+
+    <button onclick="ask()">提交</button>
+
+    <div class="chat-box" id="chatBox"></div>
+
+    <script>
+      async function ask() {
+        const question = document.getElementById("question").value.trim();
+        const repo = document.getElementById("repo").value.trim();
+        const chatBox = document.getElementById("chatBox");
+
+        if (!question || !repo) return alert("请输入问题和知识库名称");
+
+        chatBox.innerHTML += `<div class="entry"><div class="user">你:</div><div>${question}</div></div>`;
+
+        try {
+          const res = await fetch("/api/query", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question, repo }),
+          });
+
+          const data = await res.json();
+
+          if (!data.replies || !Array.isArray(data.replies)) {
+            chatBox.innerHTML += `<div class="entry"><div class="user">AI:</div><div style="color: red;">错误：${data.error || "无返回内容"}</div></div>`;
+            return;
+          }
+
+          const answers = data.replies
+            .map((r) => `<div class="chunk">${r.content}</div>`)
+            .join("");
+          chatBox.innerHTML += `<div class="entry"><div class="user">AI:</div>${answers}</div>`;
+
+          document.getElementById("question").value = "";
+        } catch (e) {
+          chatBox.innerHTML += `<div class="entry"><div class="user">AI:</div><div style="color: red;">请求失败</div></div>`;
+        }
+      }
+    </script>
+  </body>
+</html>
