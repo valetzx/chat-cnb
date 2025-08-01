@@ -28,6 +28,15 @@
       background-color: #4a5568;
     }
 
+    .hide-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    .hide-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+
     .typing-cursor {
       display: inline-block;
       width: 2px;
@@ -144,9 +153,9 @@
         const title = chat.repo || chat.name || "";
         const subtitle = chat.createdAt || chat.name || "";
         div.innerHTML = `
-            <div class="flex flex-col flex-1">
-              <span class="truncate">${title}</span>
-              <span class="text-xs text-gray-400">${subtitle}</span>
+            <div class="flex flex-col flex-1 overflow-hidden">
+              <span class="overflow-x-auto whitespace-nowrap hide-scrollbar">${title}</span>
+              <span class="text-xs text-gray-400 overflow-x-auto whitespace-nowrap hide-scrollbar">${subtitle}</span>
             </div>
             <button onclick="deleteChat('${chat.id}', event)" class="ml-2 text-gray-400 hover:text-white">✕</button>
           `;
