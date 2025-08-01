@@ -141,8 +141,13 @@
       chats.forEach((chat) => {
         const div = document.createElement("div");
         div.className = `sidebar-item flex justify-between items-center p-2 my-1 rounded hover:bg-gray-700 cursor-pointer ${chat.id === currentChatId ? "active" : ""}`;
+        const title = chat.repo || chat.name || "";
+        const subtitle = chat.createdAt || chat.name || "";
         div.innerHTML = `
-            <span class="truncate flex-1">${chat.name}</span>
+            <div class="flex flex-col flex-1">
+              <span class="truncate">${title}</span>
+              <span class="text-xs text-gray-400">${subtitle}</span>
+            </div>
             <button onclick="deleteChat('${chat.id}', event)" class="ml-2 text-gray-400 hover:text-white">✕</button>
           `;
         div.addEventListener("click", () => loadChat(chat.id));
@@ -255,9 +260,9 @@
         currentChatId = Date.now().toString();
         currentChat = {
           id: currentChatId,
-          name: `聊天 ${new Date().toLocaleString()}`,
-          token: token,
           repo: repo,
+          createdAt: new Date().toLocaleString(),
+          token: token,
           messages: [],
         };
         chats.push(currentChat);
