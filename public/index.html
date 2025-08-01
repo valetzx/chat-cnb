@@ -1,92 +1,378 @@
 <!doctype html>
 <html lang="zh">
-  <head>
-    <meta charset="UTF-8" />
-    <title>AI 知识库问答</title>
-    <style>
-      body {
-        font-family: sans-serif;
-        max-width: 800px;
-        margin: 20px auto;
+
+<head>
+  <meta charset="UTF-8" />
+  <title>CNB RAG 智能问答</title>
+  <script src="./tailwindcss.js"></script>
+  <script src="./marked.min.js"></script>
+  <style>
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #888;
+      border-radius: 3px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #555;
+    }
+
+    .sidebar-item.active {
+      background-color: #4a5568;
+    }
+
+    .typing-cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      background-color: currentColor;
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+
+      0%,
+      50% {
+        opacity: 1;
       }
-      textarea,
-      input {
-        width: 100%;
-        margin: 5px 0 10px;
+
+      51%,
+      100% {
+        opacity: 0;
       }
-      textarea {
-        height: 80px;
-      }
-      button {
-        padding: 8px 16px;
-      }
-      .chat-box {
-        border-top: 1px solid #ccc;
-        padding-top: 10px;
-        margin-top: 20px;
-      }
-      .entry {
-        margin-bottom: 15px;
-      }
-      .entry .user {
-        font-weight: bold;
-        margin-bottom: 4px;
-      }
-      .chunk {
-        background: #f4f4f4;
-        padding: 10px;
-        border-radius: 5px;
-        white-space: pre-wrap;
-      }
-    </style>
-  </head>
-  <body>
-    <h2>AI 网页对话服务</h2>
+    }
+  </style>
+</head>
 
-    <label for="repo">知识库名称（如 cnb/docs）:</label>
-    <input type="text" id="repo" placeholder="请输入知识库名称..." />
+<body class="bg-gray-100">
+  <div class="flex h-screen">
+    <!-- 左侧边栏 -->
+    <aside class="w-72 bg-gray-800 text-white p-4 flex flex-col">
+      <button id="newChatBtn"
+        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded mb-4">
+        + 新建聊天
+      </button>
+      <h2 class="text-lg font-semibold mb-2">对话记录</h2>
+      <div id="chatHistory" class="flex-grow custom-scrollbar overflow-y-auto">
+        <!-- 聊天记录将动态插入这里 -->
+      </div>
+    </aside>
 
-    <label for="question">提问：</label>
-    <textarea id="question" placeholder="请输入你的问题..."></textarea>
+    <!-- 右侧主内容区 -->
+    <main class="flex-1 flex flex-col">
+      <header class="bg-white border-b p-4 shadow-sm">
+        <div class="flex items-center space-x-4">
+          <div class="flex-1">
+            <label for="token" class="text-sm font-medium text-gray-700">CNB Token (需要 repo-code:read 权限)</label>
+            <input type="password" id="token"
+              class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm"
+              placeholder="请输入你的 CNB Token..." />
+          </div>
+          <div class="flex-1">
+            <label for="repo" class="text-sm font-medium text-gray-700">知识库 (例如 cnb/docs)</label>
+            <input type="text" id="repo"
+              class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm"
+              placeholder="请输入知识库名称..." />
+          </div>
+        </div>
+      </header>
 
-    <button onclick="ask()">提交</button>
+      <div id="chatBox" class="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-6">
+        <!-- 聊天消息将动态插入这里 -->
+      </div>
 
-    <div class="chat-box" id="chatBox"></div>
+      <footer class="bg-white border-t p-4">
+        <div class="flex items-center">
+          <textarea id="question" class="flex-1 block w-full px-3 py-2 border border-gray-300 rounded-md" rows="2"
+            placeholder="在这里输入你的问题..."></textarea>
+          <button id="sendBtn" onclick="ask()"
+            class="ml-4 px-4 py-2 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400">
+            发送
+          </button>
+        </div>
+      </footer>
+    </main>
+  </div>
 
-    <script>
-      async function ask() {
-        const question = document.getElementById("question").value.trim();
-        const repo = document.getElementById("repo").value.trim();
-        const chatBox = document.getElementById("chatBox");
+  <script>
+    let currentChatId = null;
+    let isStreaming = false;
 
-        if (!question || !repo) return alert("请输入问题和知识库名称");
+    document.addEventListener("DOMContentLoaded", () => {
+      marked.setOptions({ gfm: true, breaks: true });
 
-        chatBox.innerHTML += `<div class="entry"><div class="user">你:</div><div>${question}</div></div>`;
+      document
+        .getElementById("newChatBtn")
+        .addEventListener("click", createNewChatSession);
 
-        try {
-          const res = await fetch("/api/query", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question, repo }),
-          });
-
-          const data = await res.json();
-
-          if (!data.replies || !Array.isArray(data.replies)) {
-            chatBox.innerHTML += `<div class="entry"><div class="user">AI:</div><div style="color: red;">错误：${data.error || "无返回内容"}</div></div>`;
-            return;
-          }
-
-          const answers = data.replies
-            .map((r) => `<div class="chunk">${r.content}</div>`)
-            .join("");
-          chatBox.innerHTML += `<div class="entry"><div class="user">AI:</div>${answers}</div>`;
-
-          document.getElementById("question").value = "";
-        } catch (e) {
-          chatBox.innerHTML += `<div class="entry"><div class="user">AI:</div><div style="color: red;">请求失败</div></div>`;
+      // 添加回车发送功能
+      document.getElementById("question").addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          ask();
         }
+      });
+
+      renderChatHistory();
+      createNewChatSession();
+    });
+
+    // --- 数据管理 ---
+    function getChats() {
+      return JSON.parse(localStorage.getItem("chatHistory") || "[]");
+    }
+
+    function saveChats(chats) {
+      localStorage.setItem("chatHistory", JSON.stringify(chats));
+    }
+
+    // --- 渲染和 UI ---
+    function renderChatHistory() {
+      const chats = getChats();
+      const historyContainer = document.getElementById("chatHistory");
+      historyContainer.innerHTML = "";
+      chats.forEach((chat) => {
+        const div = document.createElement("div");
+        div.className = `sidebar-item flex justify-between items-center p-2 my-1 rounded hover:bg-gray-700 cursor-pointer ${chat.id === currentChatId ? "active" : ""}`;
+        div.innerHTML = `
+            <span class="truncate flex-1">${chat.name}</span>
+            <button onclick="deleteChat('${chat.id}', event)" class="ml-2 text-gray-400 hover:text-white">✕</button>
+          `;
+        div.addEventListener("click", () => loadChat(chat.id));
+        historyContainer.prepend(div);
+      });
+    }
+
+    function renderChatBox(messages = []) {
+      const chatBox = document.getElementById("chatBox");
+      chatBox.innerHTML = "";
+      if (messages.length === 0) {
+        chatBox.innerHTML = `<div class="p-4 bg-blue-100 border border-blue-200 rounded-lg"><p class="text-blue-800">欢迎使用 CNB RAG 智能问答服务。请输入您的 Token 和知识库，然后提出问题开始对话。</p></div>`;
+        return;
       }
-    </script>
-  </body>
+      messages.forEach((msg) => {
+        const messageHtml =
+          msg.type === "user"
+            ? `
+                <div class="flex justify-end">
+                    <div class="bg-blue-500 text-white p-3 rounded-lg max-w-lg break-words">${msg.content}</div>
+                </div>`
+            : `
+                <div class="flex justify-start">
+                    <div class="bg-gray-200 text-gray-800 p-3 rounded-lg max-w-lg prose break-words">${marked.parse(msg.content)}</div>
+                </div>`;
+        chatBox.innerHTML += messageHtml;
+      });
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    // --- 会话管理 ---
+    function createNewChatSession() {
+      currentChatId = null;
+      document.getElementById("token").value = "";
+      document.getElementById("repo").value = "";
+      document.getElementById("question").value = "";
+      renderChatBox([]);
+      renderChatHistory();
+    }
+
+    function loadChat(chatId) {
+      const chats = getChats();
+      const chat = chats.find((c) => c.id === chatId);
+      if (chat) {
+        currentChatId = chatId;
+        document.getElementById("token").value = chat.token;
+        document.getElementById("repo").value = chat.repo;
+        renderChatBox(chat.messages);
+        renderChatHistory();
+      }
+    }
+
+    function deleteChat(chatId, event) {
+      event.stopPropagation();
+      if (confirm("确定要删除这个聊天记录吗？")) {
+        let chats = getChats();
+        chats = chats.filter((c) => c.id !== chatId);
+        saveChats(chats);
+        if (currentChatId === chatId) {
+          createNewChatSession();
+        }
+        renderChatHistory();
+      }
+    }
+
+    // --- 流式打字机效果 ---
+    function createStreamingMessage() {
+      const chatBox = document.getElementById("chatBox");
+      const messageDiv = document.createElement("div");
+      messageDiv.className = "flex justify-start";
+      messageDiv.innerHTML = `
+          <div class="bg-gray-200 text-gray-800 p-3 rounded-lg max-w-lg prose break-words">
+            <span id="streaming-content"></span><span class="typing-cursor"></span>
+          </div>
+        `;
+      chatBox.appendChild(messageDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      return messageDiv;
+    }
+
+    function updateStreamingContent(content) {
+      const streamingElement = document.getElementById("streaming-content");
+      if (streamingElement) {
+        streamingElement.innerHTML = marked.parse(content);
+      }
+    }
+
+    // --- RAG 核心功能 ---
+    async function ask() {
+      if (isStreaming) return;
+
+      const question = document.getElementById("question").value.trim();
+      const repo = document.getElementById("repo").value.trim();
+      const token = document.getElementById("token").value.trim();
+
+      if (!question || !repo || !token) {
+        alert("请输入问题、知识库名称和 CNB Token");
+        return;
+      }
+
+      isStreaming = true;
+      const sendBtn = document.getElementById("sendBtn");
+      sendBtn.disabled = true;
+      sendBtn.textContent = "思考中...";
+
+      let chats = getChats();
+      let currentChat;
+
+      if (!currentChatId) {
+        currentChatId = Date.now().toString();
+        currentChat = {
+          id: currentChatId,
+          name: `聊天 ${new Date().toLocaleString()}`,
+          token: token,
+          repo: repo,
+          messages: [],
+        };
+        chats.push(currentChat);
+      } else {
+        currentChat = chats.find((c) => c.id === currentChatId);
+        currentChat.token = token;
+        currentChat.repo = repo;
+      }
+
+      currentChat.messages.push({ type: "user", content: question });
+      renderChatBox(currentChat.messages);
+      document.getElementById("question").value = "";
+
+      try {
+        // 第一步：查询知识库
+        console.log("正在查询知识库...");
+        const queryResponse = await fetch("/api/query", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question, repo, token }),
+        });
+
+        if (!queryResponse.ok) {
+          throw new Error(`知识库查询失败: ${queryResponse.status}`);
+        }
+
+        const queryData = await queryResponse.json();
+
+        if (!queryData.replies || !Array.isArray(queryData.replies)) {
+          throw new Error("知识库返回格式错误");
+        }
+
+        // 第二步：构建 RAG prompt
+        const knowledgeContent = queryData.replies.map(r => r.content).join("\n\n");
+        const ragPrompt = `基于以下知识库内容回答用户问题：
+
+知识库内容：
+${knowledgeContent}
+
+用户问题：${question}
+
+请基于上述知识库内容，准确、详细地回答用户的问题。如果知识库中没有相关信息，请明确说明。
+
+在回答的最后，请添加一个"参考资料"部分，列出回答中引用的相关资料链接。
+`;
+
+        // 第三步：发送给 AI 对话接口
+        console.log("正在生成回答...");
+        const aiResponse = await fetch("/api/ai/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            repo,
+            token,
+            messages: [{ role: "user", content: ragPrompt }],
+            stream: true
+          }),
+        });
+
+        if (!aiResponse.ok) {
+          throw new Error(`AI 对话失败: ${aiResponse.status}`);
+        }
+
+        // 第四步：处理流式响应
+        const streamingMessage = createStreamingMessage();
+        let fullContent = "";
+
+        const reader = aiResponse.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') {
+                break;
+              }
+
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.choices && parsed.choices[0] && parsed.choices[0].delta && parsed.choices[0].delta.content) {
+                  const content = parsed.choices[0].delta.content;
+                  fullContent += content;
+                  updateStreamingContent(fullContent);
+                }
+              } catch (e) {
+                console.log("解析流数据失败:", e);
+              }
+            }
+          }
+        }
+
+        // 保存完整的AI回复
+        currentChat.messages.push({ type: "ai", content: fullContent });
+
+      } catch (error) {
+        console.error("RAG 处理失败:", error);
+        const errorMessage = createStreamingMessage();
+        updateStreamingContent(`**错误:** ${error.message}`);
+        currentChat.messages.push({ type: "ai", content: `**错误:** ${error.message}` });
+      } finally {
+        isStreaming = false;
+        sendBtn.disabled = false;
+        sendBtn.textContent = "发送";
+        saveChats(chats);
+        renderChatHistory();
+      }
+    }
+  </script>
+</body>
+
 </html>
